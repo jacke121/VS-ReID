@@ -12,7 +12,7 @@ from core.utils.config import Config
 from core.utils.bbox import gen_bbox, label_to_prob, combine_prob, prob_to_label, IoU
 from core.utils.pickle_io import pickle_dump, pickle_load
 import cv2
-
+from easydict import EasyDict
 patch_shape = (449, 449)
 
 use_flip = True
@@ -276,12 +276,18 @@ def parse_args():
 
 
 def main():
-
+    d = EasyDict()
+    d.config = "configs/test_config.py"
+    d.gpu=0
+    d.gpu_num=1
+    d.testset="test-dev"
+    d.output="output"
+    d.cache=''
     def save_frame(th, do_pause, dir_name='', vis=True):
         result = prob_to_label(combine_prob(pred_prob[th]))
         result_show = np.dstack((colors[result, 0], colors[result, 1], colors[result, 2])).astype(np.uint8)
-        if args.output != '' and dir_name != '':
-            out_file = os.path.join(dataset_dir, 'Results', 'Segmentations', resolution, args.output, dir_name, video_dir, '%05d.png' % th)
+        if d.output != '' and dir_name != '':
+            out_file = os.path.join(dataset_dir, 'Results', 'Segmentations', resolution, d.output, dir_name, video_dir, '%05d.png' % th)
             if not os.path.exists(os.path.split(out_file)[0]):
                 os.makedirs(os.path.split(out_file)[0])
             if vis:
@@ -289,7 +295,6 @@ def main():
             else:
                 cv2.imwrite(out_file, result)
         temp = cv2.resize(frames[th], frame_0.shape[-2::-1]) * 0.3 + result_show * 0.7
-        return
         cv2.imshow('Result', temp.astype(np.uint8))
         if do_pause:
             cv2.waitKey()
@@ -302,9 +307,9 @@ def main():
         model, instance_num, fr_h_r, fr_w_r, appear, bbox_cnt, \
         location, patch_shapes
 
-    args = parse_args()
-    cfg = Config.from_file(args.config)
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
+
+    cfg = Config.from_file(d.config)
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(d.gpu)
 
     model = []
     model = getattr(models, cfg.model.name)(cfg.model)
@@ -322,38 +327,39 @@ def main():
     cudnn.benchmark = True
 
     # Setup dataset
-    dataset_dir = os.path.join('data/DAVIS')
-    resolution = '480p'
-    imageset_dir = os.path.join(dataset_dir, 'ImageSets', '2017', args.testset + '.txt')
+    dataset_dir = os.path.join('data/DAVIS-2017-test-dev-480p/DAVIS')
+
+    imageset_dir = os.path.join(dataset_dir, 'ImageSets', '2017', d.testset + '.txt')
 
     video_list = []
     for line in open(imageset_dir).readlines():
         if line.strip() != '':
             video_list.append(line.strip())
-
-    person_all = pickle_load(os.path.join(dataset_dir, 'PersonSearch', resolution, args.testset + '.pkl'), encoding='latin')
-    object_all = pickle_load(os.path.join(dataset_dir, 'ObjectSearch', resolution, args.testset + '.pkl'), encoding='latin')
-    category_all = pickle_load(os.path.join(dataset_dir, 'Class', resolution, args.testset + '.pkl'), encoding='latin')
+    resolution = ''
+    person_all = pickle_load(os.path.join(dataset_dir, 'PersonSearch', resolution, d.testset + '.pkl'), encoding='latin')
+    object_all = pickle_load(os.path.join(dataset_dir, 'ObjectSearch', resolution, d.testset + '.pkl'), encoding='latin')
+    category_all = pickle_load(os.path.join(dataset_dir, 'Class', resolution, d.testset + '.pkl'), encoding='latin')
     frame_cnt = 0
-
-    use_cache = (args.cache != '')
+    resolution = '480p'
+    use_cache = (d.cache != '')
     video_cnt = -1
 
     for video_dir in video_list:
         video_cnt += 1
         frame_dir = os.path.join(dataset_dir, 'JPEGImages', resolution, video_dir)
         frame_fr_dir = os.path.join(dataset_dir, 'JPEGImages', 'Full-Resolution', video_dir)
+        # frame_fr_dir = os.path.join(dataset_dir, 'JPEGImages', resolution, video_dir)
         label_dir = os.path.join(dataset_dir, 'Annotations', resolution, video_dir)
         flow_dir = os.path.join(dataset_dir, 'Flow', resolution, video_dir)
-        cache_dir = os.path.join(dataset_dir, 'Cache', resolution, args.cache, video_dir)
+        cache_dir = os.path.join(dataset_dir, 'Cache', resolution, d.cache, video_dir)
         frames_num = len(os.listdir(frame_dir))
 
-        if (video_cnt % args.gpu_num != args.gpu):
+        if (video_cnt % d.gpu_num != d.gpu):
             frame_cnt += frames_num
             continue
 
         frame_0 = cv2.imread(os.path.join(frame_dir, '%05d.jpg' % 0))
-        label_0 = cv2.imread(os.path.join(label_dir, '%05d.png' % 0), cv2.IMREAD_UNCHANGED)
+        label_0 = cv2.imread(os.path.join(label_dir, '%05d.png' % 0), 0)
 
         instance_num = label_0.max()
 
@@ -382,8 +388,8 @@ def main():
         for th in range(1, frames_num):
             frames[th] = cv2.imread(os.path.join(frame_fr_dir, '%05d.jpg' % th))
             pred_prob[th] = label_to_prob(np.zeros_like(label_0, np.uint8), instance_num)
-            flow1[th - 1] = flo.readFlow(os.path.join(flow_dir, '%05d.flo' % (th - 1)))
-            flow2[th] = flo.readFlow(os.path.join(flow_dir, '%05d.rflo' % th))
+            # flow1[th - 1] = flo.readFlow(os.path.join(flow_dir, '%05d.flo' % (th - 1)))
+            # flow2[th] = flo.readFlow(os.path.join(flow_dir, '%05d.rflo' % th))
             person_reid[th] = person_all[frame_cnt + th]
             object_reid[th] = object_all[frame_cnt + th]
 
